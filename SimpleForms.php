@@ -51,6 +51,7 @@ define('SFEB_DEPTH',  3);
 
 $wgExtensionFunctions[] = 'wfSetupSimpleForms';
 $wgHooks['LanguageGetMagic'][] = 'wfSimpleFormsLanguageGetMagic';
+$wgHooks['LoadExtensionSchemaUpdates'][] = 'SimpleForms::createUntitled';
 
 $wgExtensionCredits['parserhook'][] = array(
     'name'        => 'Simple Forms',
@@ -126,7 +127,6 @@ class SimpleForms
         $wgParser->setFunctionHook($wgSimpleFormsInputMagic,    array($this, 'inputMagic'));
         $wgParser->setFunctionHook($wgSimpleFormsRequestMagic,  array($this, 'requestMagic'));
         $wgParser->setFunctionHook($wgSimpleFormsParaTypeMagic, array($this, 'paramTypeMagic'));
-        $this->createUntitled();
         $this->processRequest();
         if (isset($_REQUEST['action']) && $_REQUEST['action'] == 'render' &&
             (!is_object($wgTitle) || isset($_REQUEST['content'])))
@@ -554,7 +554,7 @@ x = sajax_do_call('wfSimpleFormsAjax',a,document.getElementById('$update'))";
 
     // Create a dummy article for rendering content not associated with any title (unless it already exists)
     // - there's probably a better way to do this
-    function createUntitled()
+    static function createUntitled()
     {
         $title = Title::newFromText(SIMPLEFORMS_UNTITLED);
         if (!$title->exists())
