@@ -566,6 +566,7 @@ x = sajax_do_call('wfSimpleFormsAjax',a,document.getElementById('$update'))";
                 true, false
             );
         }
+        return true;
     }
 
     // Update templates wikitext content
