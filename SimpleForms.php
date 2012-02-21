@@ -52,6 +52,7 @@ define('SFEB_DEPTH',  3);
 $wgExtensionFunctions[] = 'wfSetupSimpleForms';
 $wgHooks['LanguageGetMagic'][] = 'wfSimpleFormsLanguageGetMagic';
 $wgHooks['LoadExtensionSchemaUpdates'][] = 'SimpleForms::createUntitled';
+$wgExtensionMessagesFiles['SimpleForms'] = dirname(__FILE__).'/SimpleForms.i18n.php';
 
 $wgExtensionCredits['parserhook'][] = array(
     'name'        => 'Simple Forms',
@@ -697,12 +698,6 @@ x = sajax_do_call('wfSimpleFormsAjax',a,document.getElementById('$update'))";
 function wfSetupSimpleForms()
 {
     global $wgLanguageCode, $wgMessageCache, $wgHooks, $wgRequest, $wgSimpleForms;
-
-    // Add messages
-    if ($wgLanguageCode == 'en')
-        $wgMessageCache->addMessages(array(
-            'sf_editsummary' => 'Article updated via HTTP request'
-        ));
 
     // Instantiate a singleton for the extension
     $wgSimpleForms = new SimpleForms();
