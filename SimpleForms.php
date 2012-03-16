@@ -544,7 +544,7 @@ x = sajax_do_call('wfSimpleFormsAjax',a,document.getElementById('$update'))";
             else
             {
                 if ($wgSimpleFormsAllowCreate && ($allow || $wgUser->isAllowed('edit')))
-                    $article->insertNewArticle($content,$summary ? $summary : wfMsg('sf_editsummary','created'),false,false);
+                    $article->doEdit($content, $summary ? $summary : wfMsg('sf_editsummary', 'created'));
                 else $wgOut->setPageTitle(wfMsg('whitelistedittitle'));
             }
 
@@ -561,10 +561,9 @@ x = sajax_do_call('wfSimpleFormsAjax',a,document.getElementById('$update'))";
         if (!$title->exists())
         {
             $article = new Article($title);
-            $article->insertNewArticle(
+            $article->doEdit(
                 'Dummy article used by [http://www.mediawiki.org/wiki/Extension:Simple_Forms Extension:SimpleForms]',
-                'Dummy article created for Simple Forms extension',
-                true, false
+                'Dummy article created for Simple Forms extension'
             );
         }
         return true;
