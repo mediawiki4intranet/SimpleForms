@@ -1,18 +1,21 @@
 <?php
 /**
- * MediaWiki SimpleForms Extension
- * === PATCHED TO MAKE type=ajax WORK AGAIN WITH MW 1.12 AND ABOVE ===
- * See link below for details. Thanks to Daniel Brice (:mw:User:Danbrice) for the patch
- * http://www.mediawiki.org/wiki/Extension_talk:Simple_Forms#wfSimpleFormsAjax
- * - See http://www.mediawiki.org/wiki/Extension:Simple_Forms for installation and usage details
- * - Licenced under LGPL (http://www.gnu.org/copyleft/lesser.html)
- * - Author: http://www.organicdesign.co.nz/nad
- * - Started: 2007-04-25, see article history
+ * SimpleForms extension - Provides functions to make and process forms
+ *
+ * See http://www.mediawiki.org/wiki/Extension:Simple_Forms for installation and usage details
+ *
+ * Started: 2007-04-25
+ *
+ * @package MediaWiki
+ * @subpackage Extensions
+ * @author Aran Dunkley [http://www.organicdesign.co.nz/nad User:Nad]
+ * @copyright © 2007 Aran Dunkley
+ * @licence GNU General Public Licence 2.0 or later
  */
 
 if (!defined('MEDIAWIKI'))
     die('Not an entry point.');
-define('SIMPLEFORMS_VERSION', '0.4.10.1, 2008-12-06');
+define('SIMPLEFORMS_VERSION', '0.4.15, 2012-03-14'); /* User:Alexandre Porto */
 
 // index.php parameter names
 define('SIMPLEFORMS_CONTENT',  'content');   // used for parsing wikitext content
@@ -27,6 +30,7 @@ define('SIMPLEFORMS_REGEXP',   'regexp');    // if the content-action is replace
 
 // Parser function names
 $wgSimpleFormsFormMagic       = "form";     // the parser-function name for form containers
+$wgSimpleFormsFormEndMagic    = "formend";  // the parser-function name for form end
 $wgSimpleFormsInputMagic      = "input";    // the parser-function name for form inputs
 $wgSimpleFormsRequestMagic    = "request";  // the parser-function name for accessing the post/get variables
 $wgSimpleFormsParaTypeMagic   = "paratype"; // the parser-function name for checking post/get parameter types
@@ -56,7 +60,7 @@ $wgExtensionMessagesFiles['SimpleForms'] = dirname(__FILE__).'/SimpleForms.i18n.
 
 $wgExtensionCredits['parserhook'][] = array(
     'name'        => 'Simple Forms',
-    'author'      => '[http://www.organicdesign.co.nz/nad User:Nad]',
+    'author'      => '[http://www.organicdesign.co.nz/nad User:Nad] and [http://www.mediawiki.org/wiki/User:Bilardi Alessandra Bilardi]',
     'description' => 'Functions to make and process forms.',
     'url'         => 'http://www.mediawiki.org/wiki/Extension:Simple_Forms',
     'version'     => SIMPLEFORMS_VERSION,
@@ -65,11 +69,11 @@ $wgExtensionCredits['parserhook'][] = array(
 // If it's a simple-forms ajax call, don't use dispatcher
 if ($wgUseAjax && isset($_REQUEST['action']) && $_REQUEST['action'] == 'ajax' && $_REQUEST['rs'] == 'wfSimpleFormsAjax')
 {
-    $_POST['action'] = 'render';
+    $_REQUEST['action'] = 'render';
     if (is_array($_REQUEST['rsargs']))
         foreach ($_REQUEST['rsargs'] as $arg)
             if (preg_match('/^(.+?)=(.+)$/', $arg, $m))
-                $_POST[$m[1]] = $m[2];
+                $_REQUEST[$m[1]] = $m[2];
 }
 
 // todo: handle action=edit by making $_REQUEST['preload']='UNTITLED' and still add the AAFC hook
@@ -77,10 +81,10 @@ if ($wgUseAjax && isset($_REQUEST['action']) && $_REQUEST['action'] == 'ajax' &&
 
 // If there is content passed in the request but no title, set title to the dummy "UNTITLED" article, and add a hook to replace the content
 // - there's probably a better way to do this, but this will do for now
-if ((isset($_POST[SIMPLEFORMS_CONTENT]) || isset($_REQUEST[SIMPLEFORMS_CONTENT])) && !isset($_REQUEST['title']))
+if (isset($_REQUEST[SIMPLEFORMS_CONTENT]) && !isset($_REQUEST['title']))
 {
     $wgHooks['ArticleAfterFetchContent'][] = 'wfSimpleFormsUntitledContent';
-    $_POST['title'] = SIMPLEFORMS_UNTITLED;
+    $_REQUEST['title'] = SIMPLEFORMS_UNTITLED;
     $wgSimpleFormsEnableCaching = false;
 }
 
@@ -91,7 +95,9 @@ function wfSimpleFormsUntitledContent(&$article, &$text)
     {
         $text = $wgRequest->getText(SIMPLEFORMS_CONTENT);
         if ($title = $wgRequest->getText(SIMPLEFORMS_PAGENAME))
+        {
             $wgOut->setPageTitle($title);
+        }
         else
         {
             $wgOut->setPageTitle(' ');
@@ -113,18 +119,24 @@ function wfSimpleFormsAutoAuthenticate(&$user)
     return true;
 }
 
-// Define a singleton for SimpleForms operations
+/**
+ * Define a singleton for SimpleForms operations
+ */
 class SimpleForms
 {
+
     var $id = 0;
 
-    // Constructor
+    /**
+     * Constructor
+     */
     function SimpleForms()
     {
         global $wgParser, $wgHooks, $wgTitle, $wgSimpleFormsFormMagic,
-            $wgSimpleFormsInputMagic, $wgSimpleFormsRequestMagic,
+            $wgSimpleFormsFormEndMagic, $wgSimpleFormsInputMagic, $wgSimpleFormsRequestMagic,
             $wgSimpleFormsParaTypeMagic, $wgSimpleFormsEnableCaching;
         $wgParser->setFunctionHook($wgSimpleFormsFormMagic,     array($this, 'formMagic'));
+        $wgParser->setFunctionHook($wgSimpleFormsFormEndMagic,  array($this, 'formEndMagic'));
         $wgParser->setFunctionHook($wgSimpleFormsInputMagic,    array($this, 'inputMagic'));
         $wgParser->setFunctionHook($wgSimpleFormsRequestMagic,  array($this, 'requestMagic'));
         $wgParser->setFunctionHook($wgSimpleFormsParaTypeMagic, array($this, 'paramTypeMagic'));
@@ -138,9 +150,11 @@ class SimpleForms
         $this->id = uniqid('sf-');
     }
 
-    // Renders a form and wraps it in tags for processing by tagHook
-    // - if it's an edit-form it will return empty-string unless $this->edit is true
-    //   i.e. $this->edit would be set by the edit-hook or create-specialpage parsing it
+    /**
+     * Renders a form and wraps it in tags for processing by tagHook
+     * - if it's an edit-form it will return empty-string unless $this->edit is true
+     * i.e. $this->edit would be set by the edit-hook or create-specialpage parsing it
+     */
     function formMagic(&$parser)
     {
         global $wgScript, $wgSimpleFormsEnableCaching;
@@ -149,31 +163,48 @@ class SimpleForms
         $argv = func_get_args();
         $id = $this->id;
         if (isset($_REQUEST['action']) && $_REQUEST['action'] == 'render' && isset($_REQUEST['wiklet']))
-            $hidden = '<input type="hidden" name="action" value="render" />'.
-                '<input type="hidden" name="wiklet"/>';
+            $hidden = '<input type="hidden" name="action" value="render"/>
+            <input type="hidden" name="wiklet"/>';
         else
             $hidden = '';
-        $action = isset($argv['action']) ? $argv['action'] : $wgScript;
         unset($argv['action']);
-        $form   = '';
-        $args   = '';
+        $form = '';
+        $args = '';
+        $argl = array();
         foreach ($argv as $arg)
         {
             if (!is_object($arg))
             {
                 if (preg_match('/^([a-z0-9_]+?)\\s*=\\s*(.+)$/is', $arg, $match))
+                {
                     $args .= " $match[1]=\"$match[2]\"";
+                    $argl[$match[1]] = $match[2];
+                }
                 else
                     $form = $arg;
             }
         }
-        $form = "<form$args action=\"$action\" id=\"$id\">$hidden$form</form>";
+        $action = isset($argl['action']) ? $argl['action'] : $wgScript;
+        $form = "<form$args action=\"$action\" id=\"$id\">$hidden$form";
         $this->id = uniqid('sf-');
-        $form = preg_replace("/^\\s+/m", '', $form);
-        return array($form, 'noparse' => true, 'isHTML' => true);
+        $form = preg_replace("/^\\s+/m",'',$form);
+        return $parser->insertStripItem($form, $parser->mStripState);
+        /*return array($form, 'noparse' => true, 'isHTML' => true);*/
     }
 
-    // Renders a form input
+    /**
+     * Renders a form end
+     */
+    function formEndMagic(&$parser)
+    {
+        $form = "</form>";
+        return $parser->insertStripItem( $form, $parser->mStripState );
+        /*return array($form, 'noparse' => true, 'isHTML' => true);*/
+    }
+
+    /**
+     * Renders a form input
+     */
     function inputMagic(&$parser)
     {
         global $wgSimpleFormsRequestPrefix, $wgSimpleFormsEnableCaching;
@@ -197,7 +228,10 @@ class SimpleForms
                     $content = trim($arg);
             }
         }
-        $type = isset($argv['type']) ? $argv['type'] : '';
+        if (isset($argv['type']))
+            $type = $argv['type'];
+        else
+            $type = '';
         if (isset($argv['name']))
             $argv['name'] = $wgSimpleFormsRequestPrefix.$argv['name'];
 
@@ -211,7 +245,7 @@ class SimpleForms
         }
 
         // Select list
-        elseif ($type == 'select')
+        elseif ($type == 'select' )
         {
             unset($argv['type']);
 
@@ -232,12 +266,18 @@ class SimpleForms
             foreach ($argv as $k => $v)
                 $args .= " $k=\"$v\"";
 
-            preg_match_all('/^\\*\\s*(.*?)\\s*$/m', $content, $m);
+            preg_match_all( '/^\\*\\s*(.*?)\\s*$/m', $content, $m );
             $input = "<select$args>\n";
-            foreach ($m[1] as $opt)
+            foreach ($m[1] as $opt )
             {
+                $txt = strtok( $opt, '¦' );
+                if ( $opt != $txt )
+                {
+                    $opt = $txt;
+                    $txt = strtok( '¦' );
+                }
                 $sel = $opt == $val ? ' selected' : '';
-                $input .= "<option$sel>$opt</option>\n";
+                $input .= "<option value=$opt$sel>$txt</option>\n";
             }
 
             $input .= "</select>\n";
@@ -253,30 +293,28 @@ class SimpleForms
             if (isset($argv['template']))
             {
                 $template = '{'.'{'.$argv['template'];
-                $template =
-"var t = '$template\\n';
-inputs = f.getElementsByTagName('select');
-for (i = 0; i < inputs.length; i++)
-    if (n = inputs[i].getAttribute('name'))
-        t += '|' + n + '=' + inputs[i].getAttribute('selected') + '\\n';
-t = t + '}'+'}\\n';
-alert(t);
-/*
-i = document.createElement('input');
-i.setAttribute('type','hidden');
-i.setAttribute('name','templates');
-i.setAttribute('value','update');
-f.appendChild(i);
-i = document.createElement('input');
-i.setAttribute('type','hidden');
-i.setAttribute('name','content');
-i.setAttribute('value',t);
-f.appendChild(i);
-*/";
+                $template = "var t = '$template\\n';
+                    inputs = f.getElementsByTagName('select');
+                    for (i = 0; i < inputs.length; i++)
+                        if (n = inputs[i].getAttribute('name'))
+                            t += '|' + n + '=' + inputs[i].getAttribute('selected') + '\\n';
+                    t = t + '}'+'}\\n';
+                    alert(t);/*
+                    i = document.createElement('input');
+                    i.setAttribute('type','hidden');
+                    i.setAttribute('name','templates');
+                    i.setAttribute('value','update');
+                    f.appendChild(i);
+                    i = document.createElement('input');
+                    i.setAttribute('type','hidden');
+                    i.setAttribute('name','content');
+                    i.setAttribute('value',t);
+                    f.appendChild(i);*/";
                 unset($argv['template']);
             }
             else
                 $template = '';
+
             if ($format == 'link')
             {
                 // Render the Ajax input as a link independent of any form
@@ -289,8 +327,10 @@ f.appendChild(i);
                 $argv['class'] = !$t || $t->exists() ? 'ajax' : 'new ajax';
                 unset($argv['type']);
                 $params = array();
-                foreach ($argv as $k => $v) if ($k != 'class') $params[] = "'$k=$v'";
-                $params = join(',', $params);
+                foreach ($argv as $k => $v)
+                    if ($k != 'class')
+                        $params[] = "'$k=$v'";
+                $params = join(',',$params);
                 $argv['href'] = "javascript:var x = sajax_do_call('wfSimpleFormsAjax',[$params],document.getElementById('$update'))";
             }
             else
@@ -300,23 +340,22 @@ f.appendChild(i);
                 $element      = 'input';
                 if (!isset($argv['onClick']))
                     $argv['onClick'] = '';
-                $argv['onClick'] .=
-"a = [];
-f = document.getElementById('{$this->id}');
-i = f.elements;
-for (var k = 0; k < f.elements.length; k++) {
-  if (i[k].type == 'select-one') {
-    if (i[k].selectedIndex !== undefined) {
-      a.push(i[k].name+'='+i[k].options[i[k].selectedIndex].text);
-    }
-  } else if (i[k].name && i[k].value &&
-      (i[k].type != 'radio' || i[k].checked) &&
-      (i[k].type != 'checkbox' || i[k].checked)) {
-         a.push(i[k].name+'='+i[k].value);
-  }
-}
-sajax_request_type = 'POST';
-x = sajax_do_call('wfSimpleFormsAjax',a,document.getElementById('$update'))";
+                $argv['onClick'] .= "a = [];
+                    f = document.getElementById('{$this->id}');
+                    i = f.elements;
+                    for (var k = 0; k < f.elements.length; k++) {
+                      if (i[k].type == 'select-one') {
+                        if (i[k].selectedIndex !== undefined ) {
+                          a.push(i[k].name+'='+i[k].options[i[k].selectedIndex].text);
+                        }
+                      } else if (i[k].name && i[k].value &&
+                          (i[k].type != 'radio' || i[k].checked) &&
+                          (i[k].type != 'checkbox' || i[k].checked)) {
+                             a.push(i[k].name+'='+i[k].value);
+                      }
+                    }
+                    sajax_request_type = 'POST';
+                    x = sajax_do_call('wfSimpleFormsAjax',a,document.getElementById('$update'))";
             }
 
             foreach ($argv as $k => $v)
@@ -332,11 +371,13 @@ x = sajax_do_call('wfSimpleFormsAjax',a,document.getElementById('$update'))";
             $input = "<input$args/>";
         }
 
-        $input = preg_replace("/^\\s+/m", '', $input);
-        return array($input, 'noparse' => true, 'isHTML' => true);
+        $input = preg_replace("/^\\s+/m",'',$input);
+        return array($input,'noparse' => true, 'isHTML' => true);
     }
 
-    // Return value from the global $_REQUEST array (containing GET/POST variables)
+    /**
+     * Return value from the global $_REQUEST array (containing GET/POST variables)
+     */
     function requestMagic(&$parser)
     {
         global $wgRequest, $wgSimpleFormsRequestPrefix, $wgContLang;
@@ -349,33 +390,27 @@ x = sajax_do_call('wfSimpleFormsAjax',a,document.getElementById('$update'))";
 
         // get the request parameter name
         $paramName = array_shift($args);
-        // only thing left in $args at this point are the array keys
 
+        // only thing left in $args at this point are the array keys
         // If no keys are specified, we just call getText()
         if (count($args) == 0)
         {
-            $paramValue = $wgRequest->getText(
-                $wgSimpleFormsRequestPrefix . $paramName);
-
+            $paramValue = $wgRequest->getText($wgSimpleFormsRequestPrefix.$paramName);
             return $paramValue;
         }
 
         // when the parameter is a scalar calling getArray() puts it in an
         // array and returns the array, so we need to do a scalar check
-        if (!is_null($wgRequest->getVal(
-            $wgSimpleFormsRequestPrefix . $paramName)))
+        if (!is_null($wgRequest->getVal($wgSimpleFormsRequestPrefix.$paramName)))
             return '';
 
         // get the array associated with this parameter name
-        $paramValue = $wgRequest->getArray($wgSimpleFormsRequestPrefix .
-            $paramName);
+        $paramValue = $wgRequest->getArray($wgSimpleFormsRequestPrefix.$paramName);
 
         // time to descend into the depths of the array associated with the
         // parameter name
-        while (count($args) > 0)
+        foreach ($args as $key)
         {
-            $key = array_shift($args);
-
             // do we have more keys than we have array nests?
             if (!is_array($paramValue))
                 return '';
@@ -389,8 +424,7 @@ x = sajax_do_call('wfSimpleFormsAjax',a,document.getElementById('$update'))";
             return '';
 
         // we've found a param value!
-        $paramValue = str_replace("\r\n", "\n",
-            $wgContLang->recodeInput($paramValue));
+        $paramValue = str_replace("\r\n", "\n", $wgContLang->recodeInput($paramValue));
 
         return $paramValue;
     }
@@ -416,21 +450,17 @@ x = sajax_do_call('wfSimpleFormsAjax',a,document.getElementById('$update'))";
 
         // get the request parameter name
         $paramName = array_shift($args);
-        // only thing left in $args at this point are the array keys
 
+        // only thing left in $args at this point are the array keys
         // If no keys are specified, we just try to get a scalar
         if (count($args) == 0)
         {
-            $paramValue = $wgRequest->getVal(
-                $wgSimpleFormsRequestPrefix . $paramName);
-
+            $paramValue = $wgRequest->getVal($wgSimpleFormsRequestPrefix.$paramName);
             if (is_null($paramValue))
             {
                 // getVal() returns null if the reqest parameter is an array, so
                 // we need to verify that the parameter was not passed.
-                $paramValue = $wgRequest->getArray(
-                    $wgSimpleFormsRequestPrefix . $paramName);
-
+                $paramValue = $wgRequest->getArray($wgSimpleFormsRequestPrefix.$paramName);
                 return is_null($paramValue) ? '0' : '2';
             }
 
@@ -440,22 +470,17 @@ x = sajax_do_call('wfSimpleFormsAjax',a,document.getElementById('$update'))";
 
         // when the parameter is a scalar calling getArray() puts it in an
         // array and returns the array, so we need to do a scalar check
-        if (!is_null($wgRequest->getVal(
-            $wgSimpleFormsRequestPrefix . $paramName)))
+        if (!is_null($wgRequest->getVal($wgSimpleFormsRequestPrefix.$paramName)))
             return '0';
 
         // get the array associated with this parameter name
-        $paramValue = $wgRequest->getArray($wgSimpleFormsRequestPrefix .
-            $paramName);
+        $paramValue = $wgRequest->getArray($wgSimpleFormsRequestPrefix.$paramName);
 
         // descend into the depths of the array
-        while (count($args) > 0)
+        foreach ($args as $key)
         {
-            $key = array_shift($args);
-
             // do we have more keys than we have array nests?
-            if (!is_array($paramValue) ||
-                !array_key_exists($key, $paramValue))
+            if (!is_array($paramValue) || !array_key_exists($key, $paramValue))
                 return '0';
 
             // a little closer to the value we want
@@ -466,7 +491,9 @@ x = sajax_do_call('wfSimpleFormsAjax',a,document.getElementById('$update'))";
         return is_array($paramValue) ? '2' : '1';
     }
 
-    // Return the raw content
+    /**
+     * Return the raw content
+     */
     function raw($text)
     {
         global $wgOut,$wgParser,$wgRequest;
@@ -481,8 +508,10 @@ x = sajax_do_call('wfSimpleFormsAjax',a,document.getElementById('$update'))";
         return false;
     }
 
-    // Return rendered content of page
-    function render(&$out,&$text)
+    /**
+     * Return rendered content of page
+     */
+    function render(&$out, &$text)
     {
         $this->setCaching();
         $out->disable();
@@ -491,10 +520,12 @@ x = sajax_do_call('wfSimpleFormsAjax',a,document.getElementById('$update'))";
         return false;
     }
 
-    // Disable caching if necessary
+    /**
+     * Disable caching if necessary
+     */
     function setCaching()
     {
-        global $wgOut,$wgEnableParserCache,$wgSimpleFormsEnableCaching;
+        global $wgOut, $wgEnableParserCache, $wgSimpleFormsEnableCaching;
         if ($wgSimpleFormsEnableCaching)
             return;
         $wgOut->enableClientCache(false);
@@ -502,24 +533,27 @@ x = sajax_do_call('wfSimpleFormsAjax',a,document.getElementById('$update'))";
         header("Expires: Mon, 26 Jul 1997 05:00:00 GMT");
     }
 
-    // Processes HTTP requests containing wikitext content
+    /**
+     * Processes HTTP requests containing wikitext content
+     */
     function processRequest()
     {
         global $wgOut, $wgRequest, $wgUser, $wgTitle,
-            $wgSimpleFormsAllowRemoteAddr, $wgSimpleFormsAllowCreate, $wgSimpleFormsAllowEdit;
+               $wgSimpleFormsAllowRemoteAddr, $wgSimpleFormsAllowCreate, $wgSimpleFormsAllowEdit;
 
         $content = trim($wgRequest->getText(SIMPLEFORMS_CONTENT));
         $action  = $wgRequest->getText('action');
         $title   = $wgRequest->getText('title');
 
         // Handle content with action=raw case (allows templates=expand too)
-        if ($action == 'raw' && isset($_REQUEST[SIMPLEFORMS_CONTENT])) $this->raw($content);
+        if ($action == 'raw' && isset($_REQUEST[SIMPLEFORMS_CONTENT]))
+            $this->raw($content);
 
         // Handle content and title case (will either update or create an article)
         if ($title != SIMPLEFORMS_UNTITLED && isset($_REQUEST[SIMPLEFORMS_CONTENT]))
         {
             $title   = Title::newFromText($wgRequest->getText('title'));
-            if (!$title || $title->getNamespace() == NS_SPECIAL)
+            if ($title->getNamespace() == NS_SPECIAL)
                 return;
             if (!is_object($wgTitle))
                 $wgTitle = $title; // hack to stop DPL crashing
@@ -532,12 +566,13 @@ x = sajax_do_call('wfSimpleFormsAjax',a,document.getElementById('$update'))";
             // If title exists and allowed to edit, prepend/append/replace content
             if ($title->exists())
             {
-                if ($wgSimpleFormsAllowEdit && ($allow || $wgUser->isAllowed('edit')))
+                if ($wgSimpleFormsAllowEdit && ($allow || $wgUser->isAllowed('edit') && !$wgUser->isBlocked()))
                 {
                     $update = $this->updateTemplates($article->getContent(),$content);
-                    $article->updateArticle($update,$summary?$summary:wfMsg('sf_editsummary'),false,false);
+                    $article->updateArticle($update, $summary ? $summary : wfMsg('sf_editsummary'), false, false);
                 }
-                else $wgOut->setPageTitle(wfMsg('whitelistedittitle'));
+                else
+                    $wgOut->setPageTitle(wfMsg('whitelistedittitle'));
             }
 
             // No such title, create new article from content if allowed to create
@@ -545,34 +580,51 @@ x = sajax_do_call('wfSimpleFormsAjax',a,document.getElementById('$update'))";
             {
                 if ($wgSimpleFormsAllowCreate && ($allow || $wgUser->isAllowed('edit')))
                     $article->doEdit($content, $summary ? $summary : wfMsg('sf_editsummary', 'created'));
-                else $wgOut->setPageTitle(wfMsg('whitelistedittitle'));
+                else
+                    $wgOut->setPageTitle(wfMsg('whitelistedittitle'));
             }
 
             // If returnto is set, add a redirect header and die
-            if ($return) die(header('Location: '.Title::newFromText($return)->getFullURL()));
+            if ($return)
+                die(header('Location: '.Title::newFromText($return)->getFullURL()));
         }
     }
 
-    // Create a dummy article for rendering content not associated with any title (unless it already exists)
-    // - there's probably a better way to do this
+    /**
+     * Create a dummy article for rendering content not associated with any title (unless it already exists)
+     * - there's probably a better way to do this
+     */
     static function createUntitled()
     {
         $title = Title::newFromText(SIMPLEFORMS_UNTITLED);
         if (!$title->exists())
         {
-            $article = new Article($title);
-            $article->doEdit(
-                'Dummy article used by [http://www.mediawiki.org/wiki/Extension:Simple_Forms Extension:SimpleForms]',
-                'Dummy article created for Simple Forms extension'
-            );
+            global $wgUser;
+            if ($wgUser->getId() && $wgUser->isAllowed('edit'))
+            {
+                $flags = EDIT_NEW;
+                if ($wgUser->isAllowed('bot'))
+                {
+                    $flags |= EDIT_FORCE_BOT;
+                }
+                $article = new Article($title);
+                $article->doEdit(
+                    'Dummy article used by [http://www.mediawiki.org/wiki/Extension:Simple_Forms Extension:SimpleForms]',
+                    'Dummy article created for Simple Forms extension',
+                    $flags
+                );
+                die(header('Location: ' . $title->getFullURL()));
+            }
         }
         return true;
     }
 
-    // Update templates wikitext content
-    // - $updates must start and end with double-braces
-    // - $updates may contain multiple template updates
-    // - each update must only match one template, comparison of args will reduce multiple matches
+    /**
+     * Update templates wikitext content
+     * - $updates must start and end with double-braces
+     * - $updates may contain multiple template updates
+     * - each update must only match one template, comparison of args will reduce multiple matches
+     */
     function updateTemplates($content, $updates)
     {
         global $wgRequest;
@@ -583,6 +635,7 @@ x = sajax_do_call('wfSimpleFormsAjax',a,document.getElementById('$update'))";
         // Resort to normal content-action if $updates is not exclusively template definitions or updating templates disabled
         if ($taction == 'update' and preg_match('/^\\{\\{.+\\}\\}$/is', $updates, $match))
         {
+
             // pattern to extract the first name and value of the first arg from template definition
             $pattern = '/^.+?[:\\|]\\s*(\\w+)\\s*=\\s*(.*?)\\s*[\\|\\}]/s';
             $addtext = '';
@@ -597,7 +650,7 @@ x = sajax_do_call('wfSimpleFormsAjax',a,document.getElementById('$update'))";
                 if ($ubrace[SFEB_DEPTH] == 1)
                 {
                     // Get the update text
-                    $utext = substr($updates, $ubrace[SFEB_OFFSET], $ubrace[SFEB_LENGTH]);
+                    $utext = substr($updates,$ubrace[SFEB_OFFSET],$ubrace[SFEB_LENGTH]);
 
                     // Get braces in content with the same name as this update
                     $matches = array();
@@ -652,16 +705,21 @@ x = sajax_do_call('wfSimpleFormsAjax',a,document.getElementById('$update'))";
         // Add any prepend/append updates using the content-action
         if ($addtext)
         {
-            if     ($caction == 'prepend') $content = "$addtext\n$content";
-            elseif ($caction == 'append')  $content = "$content\n$addtext";
-            elseif ($caction == 'replace') $content = $addtext;
+            if ($caction == 'prepend')
+                $content = "$addtext\n$content";
+            elseif ($caction == 'append')
+                $content = "$content\n$addtext";
+            elseif ($caction == 'replace')
+                $content = $addtext;
         }
 
         return $content;
     }
 
-    // Return a list of info about each template definition in the passed wikitext content
-    // - list item format is NAME,OFFSET,LENGTH,DEPTH
+    /**
+     * Return a list of info about each template definition in the passed wikitext content
+     * - list item format is NAME, OFFSET, LENGTH, DEPTH
+     */
     function examineBraces(&$content)
     {
         $braces = array();
@@ -673,27 +731,32 @@ x = sajax_do_call('wfSimpleFormsAjax',a,document.getElementById('$update'))";
             $index = $match[0][1]+2;
             if ($match[0][0] == '}}')
             {
-                $brace              = &$braces[$depths[$depth-1]];
+                $brace = &$braces[$depths[$depth-1]];
                 $brace[SFEB_LENGTH] = $match[0][1]-$brace[SFEB_OFFSET]+2;
-                $brace[SFEB_DEPTH]  = --$depth;
+                $brace[SFEB_DEPTH] = --$depth;
             }
             else
             {
-                $depths[$depth++]   = count($braces);
-                $braces[]           = array(
-                    SFEB_NAME => $match[1][0],
-                    SFEB_OFFSET => $match[0][1]
-                );
+                $depths[$depth++] = count($braces);
+                $braces[] = array(SFEB_NAME => $match[1][0], SFEB_OFFSET => $match[0][1]);
             }
         }
         return $braces;
     }
 
-    // Needed in some versions to prevent Special:Version from breaking
-    function __toString() { return 'SimpleForms'; }
+    /**
+     * Needed in some versions to prevent Special:Version from breaking
+     */
+    function __toString()
+    {
+        return 'SimpleForms';
+    }
+
 }
 
-// Called from $wgExtensionFunctions array when initialising extensions
+/**
+ * Called from $wgExtensionFunctions array when initialising extensions
+ */
 function wfSetupSimpleForms()
 {
     global $wgLanguageCode, $wgMessageCache, $wgHooks, $wgRequest, $wgSimpleForms;
@@ -702,13 +765,17 @@ function wfSetupSimpleForms()
     $wgSimpleForms = new SimpleForms();
 }
 
-// Needed in MediaWiki >1.8.0 for magic word hooks to work properly
-function wfSimpleFormsLanguageGetMagic(&$magicWords, $langCode = 0)
+/**
+ * Needed in MediaWiki >1.8.0 for magic word hooks to work properly
+ */
+function wfSimpleFormsLanguageGetMagic(&$magicWords,$langCode = 0)
 {
-    global $wgSimpleFormsFormMagic,$wgSimpleFormsInputMagic,$wgSimpleFormsRequestMagic,$wgSimpleFormsParaTypeMagic;
-    $magicWords[$wgSimpleFormsFormMagic]     = array(0,$wgSimpleFormsFormMagic);
-    $magicWords[$wgSimpleFormsInputMagic]    = array(0,$wgSimpleFormsInputMagic);
-    $magicWords[$wgSimpleFormsRequestMagic]  = array(0,$wgSimpleFormsRequestMagic);
-    $magicWords[$wgSimpleFormsParaTypeMagic] = array(0,$wgSimpleFormsParaTypeMagic);
+    global $wgSimpleFormsFormMagic, $wgSimpleFormsFormEndMagic,
+        $wgSimpleFormsInputMagic, $wgSimpleFormsRequestMagic, $wgSimpleFormsParaTypeMagic;
+    $magicWords[$wgSimpleFormsFormMagic]     = array(0, $wgSimpleFormsFormMagic);
+    $magicWords[$wgSimpleFormsFormEndMagic]  = array(0, $wgSimpleFormsFormEndMagic);
+    $magicWords[$wgSimpleFormsInputMagic]    = array(0, $wgSimpleFormsInputMagic);
+    $magicWords[$wgSimpleFormsRequestMagic]  = array(0, $wgSimpleFormsRequestMagic);
+    $magicWords[$wgSimpleFormsParaTypeMagic] = array(0, $wgSimpleFormsParaTypeMagic);
     return true;
 }
