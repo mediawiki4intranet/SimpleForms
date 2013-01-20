@@ -74,7 +74,8 @@ class SpecialSimpleForms extends SpecialPage
         $exists = $title && $title->exists();
         if (!$title || $title->getNamespace() == NS_SPECIAL ||
             !($exists ? $wgSimpleFormsAllowEdit : $wgSimpleFormsAllowCreate) ||
-            !$title->userCan($exists ? 'edit' : 'create'))
+            !$title->userCan($exists ? 'edit' : 'create') ||
+            !$wgUser->matchEditToken($wgRequest->getVal('wpEditToken')))
         {
             $wgOut->showErrorPage('sf_editdenied', 'sf_editdeniedtext', array($page));
             return;
