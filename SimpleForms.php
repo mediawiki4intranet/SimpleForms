@@ -1,14 +1,14 @@
 <?php
+
 /**
- * SimpleForms extension - Provides functions to make and process forms
- * (OK)      IDEA 1: Create/edit an article using a form and a template
- * (LESS OK) IDEA 2: Use ajax to query and render some dynamic content from wiki (DPL?)
- * (WICKED)  IDEA 3: Make any random form using this extension
+ * SimpleForms extension - provides functions to make and process forms
+ * Refactored in 2013 by Mediawiki4Intranet project, http://wiki.4intra.net/
  *
- * See http://www.mediawiki.org/wiki/Extension:Simple_Forms for installation and usage details
+ * http://wiki.4intra.net/SimpleForms
+ * http://www.mediawiki.org/wiki/Extension:Simple_Forms
  *
  * Started: 2007-04-25
- * Refactored by Vitaliy Filippov and Mediawiki4Intranet project http://wiki.4intra.net/
+ * Refactored: 2013-01-21
  *
  * @package MediaWiki
  * @subpackage Extensions
@@ -37,9 +37,17 @@
  * {{#formend:}}
  */
 
+/**
+ * Original extension usage ideas:
+ *
+ * (OK)      IDEA 1: Create/edit an article using a form and a template
+ * (LESS OK) IDEA 2: Use ajax to query and render some dynamic content from wiki (DPL?)
+ * (WICKED)  IDEA 3: Make any random form using this extension
+ */
+
 if (!defined('MEDIAWIKI'))
     die('Not an entry point.');
-define('SIMPLEFORMS_VERSION', '0.4.15, 2012-03-14'); /* User:Alexandre Porto */
+define('SIMPLEFORMS_VERSION', '0.5.0, 2013-01-21'); /* Vitaliy Filippov, http://wiki.4intra.net/ */
 
 // Request parameter names
 define('SIMPLEFORMS_CONTENT',  'content');   // used for parsing wikitext content
@@ -81,8 +89,8 @@ $wgResourceModules['SimpleForms'] = array(
 
 $wgExtensionCredits['parserhook'][] = array(
     'name'        => 'Simple Forms',
-    'author'      => '[http://www.organicdesign.co.nz/nad User:Nad] and [http://www.mediawiki.org/wiki/User:Bilardi Alessandra Bilardi]',
-    'description' => 'Functions to make and process forms.',
+    'author'      => '[http://www.organicdesign.co.nz/nad User:Nad], [http://www.mediawiki.org/wiki/User:Bilardi Alessandra Bilardi], [http://wiki.4intra.net/User:VitaliyFilippov User:VitaliyFilippov]',
+    'description' => 'Functions to make and process forms. Refactored by Mediawiki4Intranet.',
     'url'         => 'http://www.mediawiki.org/wiki/Extension:Simple_Forms',
     'version'     => SIMPLEFORMS_VERSION,
 );

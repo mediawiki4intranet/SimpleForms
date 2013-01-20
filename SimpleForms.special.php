@@ -1,15 +1,34 @@
 <?php
 
+/**
+ * SimpleForms extension - provides functions to make and process forms
+ * Refactored in 2013 by Mediawiki4Intranet project, http://wiki.4intra.net/
+ *
+ * http://wiki.4intra.net/SimpleForms
+ * http://www.mediawiki.org/wiki/Extension:Simple_Forms
+ *
+ * @package MediaWiki
+ * @subpackage Extensions
+ * @author Aran Dunkley [http://www.organicdesign.co.nz/nad User:Nad]
+ * @copyright © 2007 Aran Dunkley
+ * @copyright © 2013 Vitaliy Filippov
+ * @licence GNU General Public Licence 2.0 or later
+ */
+
 define('SFEB_NAME',   0);
 define('SFEB_OFFSET', 1);
 define('SFEB_LENGTH', 2);
 define('SFEB_DEPTH',  3);
 
+/**
+ * SimpleForms extension special page handler
+ */
 class SpecialSimpleForms extends SpecialPage
 {
     function __construct()
     {
         parent::__construct('SimpleForms');
+        $this->setListed(false);
     }
 
     function getText()
