@@ -109,7 +109,7 @@ class SpecialSimpleForms extends SpecialPage
 
     function render($text)
     {
-        global $wgOut, $wgRequest, $wgParser, $wgSimpleFormsEnableCaching;
+        global $wgOut, $wgRequest, $wgParser, $wgUser, $wgSimpleFormsEnableCaching;
         if (!$wgSimpleFormsEnableCaching)
         {
             $wgOut->enableClientCache(false);
