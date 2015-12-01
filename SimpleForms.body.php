@@ -181,6 +181,7 @@ class SimpleForms
     function requestMagic($parser, $param)
     {
         global $wgRequest;
+        $parser->disableCache();
         return $wgRequest->getText($param);
     }
 }
